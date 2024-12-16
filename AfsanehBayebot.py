@@ -143,6 +143,12 @@ async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT
 async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Change the bot's language."""
     global user_language
+
+    if update.effective_chat.type in ["group", "supergroup"]:
+        if not is_admin(update):
+            await update.message.reply_text(get_text("admin_only"))
+            return
+
     if len(context.args) != 1 or context.args[0] not in languages:
         available_languages = ", ".join(languages.keys())
         await update.message.reply_text(
