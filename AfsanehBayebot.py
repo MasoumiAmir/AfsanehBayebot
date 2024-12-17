@@ -15,8 +15,7 @@ user_language = "fa"  # Default language is Persian
 languages = {
     "en": {
         "welcome": "Hello! I am a bot that forwards audio messages from a group to a specific channel. Let me know if you need assistance.",
-        "status": "The bot is currently {status}.
-Uptime: {uptime}",
+        "status": "The bot is currently {status}.Uptime: {uptime}",
         "paused": "The bot has been paused.",
         "resumed": "The bot has resumed forwarding messages.",
         "admin_only": "You must be an admin to use this command.",
@@ -31,6 +30,9 @@ Uptime: {uptime}",
             "/language - Change the bot's language"
         ),
         "language_set": "Language has been set to English."
+        "success_forward": "Message forwarded successfully."
+        "failed_forward": "Failed to forward the message."
+        "reply": "Please use this command in reply to a message you want to forward."
     },
     "fa": {
         "welcome": "سلام! من یک ربات هستم که پیام‌های صوتی را از گروه به یک کانال خاص ارسال می‌کنم. اگر به کمک نیاز دارید اطلاع دهید.",
@@ -49,6 +51,9 @@ Uptime: {uptime}",
             "/language - تغییر زبان ربات"
         ),
         "language_set": "زبان به فارسی تغییر یافت."
+        "success_forward": "فرستادم"
+        "failed_forward": "نتونستم بفرستم"
+        "reply": "این دستور رو روی پیامی که می‌خوای داخل کانال فرستاده بشه ریپلای کن."
     }
 }
 
@@ -124,7 +129,7 @@ async def forward_new_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Forward a specific message in response to a reply."""
     if not update.message.reply_to_message:
-        await update.message.reply_text("Please use this command in reply to a message you want to forward.")
+        await update.message.reply_text("reply")
         return
 
     try:
@@ -134,11 +139,11 @@ async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT
             from_chat_id=target_message.chat.id,
             message_id=target_message.message_id
         )
-        await update.message.reply_text("Message forwarded successfully.")
+        await update.message.reply_text("success_forward")
         print(f"[INFO] Forwarded message ID {target_message.message_id} from {target_message.chat.id} to {CHANNEL_CHAT_ID}.")
     except Exception as e:
         print(f"[ERROR] Error while forwarding specific message: {e}")
-        await update.message.reply_text("Failed to forward the message.")
+        await update.message.reply_text("failed_forward")
 
 async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Change the bot's language."""
