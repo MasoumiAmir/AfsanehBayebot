@@ -36,7 +36,7 @@ languages = {
     },
     "fa": {
         "welcome": "سولام داداش ماچت خوبه؟",
-        "status": "وضعیت: {status} \nمدت زمان کارکرد: {uptime}",
+        "status": "وضعیت: {status} \nمدت زمان کارکرد: \n{uptime}",
         "paused": "افسانه خوابید",
         "resumed": "بیدارم",
         "admin_only": "فقط ادمین‌ها می‌توانند از این دستور استفاده کنند.",
@@ -129,7 +129,7 @@ async def forward_new_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Forward a specific message in response to a reply."""
     if not update.message.reply_to_message:
-        await update.message.reply_text("reply")
+        await update.message.reply_text(get_text("reply"))
         return
 
     try:
@@ -139,11 +139,11 @@ async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT
             from_chat_id=target_message.chat.id,
             message_id=target_message.message_id
         )
-        await update.message.reply_text("success_forward")
+        await update.message.reply_text(get_text("success_forward"))
         print(f"[INFO] Forwarded message ID {target_message.message_id} from {target_message.chat.id} to {CHANNEL_CHAT_ID}.")
     except Exception as e:
         print(f"[ERROR] Error while forwarding specific message: {e}")
-        await update.message.reply_text("failed_forward")
+        await update.message.reply_text(get_text("failed_forward"))
 
 async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Change the bot's language."""
