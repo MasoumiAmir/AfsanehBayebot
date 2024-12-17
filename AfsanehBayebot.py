@@ -29,10 +29,10 @@ languages = {
             "/forward - Forward a specific message (use in reply)\n"
             "/language - Change the bot's language"
         ),
-        "language_set": "Language has been set to English."
-        "success_forward": "Message forwarded successfully."
-        "failed_forward": "Failed to forward the message."
-        "reply": "Please use this command in reply to a message you want to forward."
+        "language_set": "Language has been set to English.",
+        "success_forward": "Message forwarded successfully.",
+        "failed_forward": "Failed to forward the message.",
+        "reply": "Please use this command in reply to a message you want to forward.",
     },
     "fa": {
         "welcome": "سلام! من یک ربات هستم که پیام‌های صوتی را از گروه به یک کانال خاص ارسال می‌کنم. اگر به کمک نیاز دارید اطلاع دهید.",
@@ -50,10 +50,10 @@ languages = {
             "/forward - ارسال یک پیام خاص (با ریپلای کردن)\n"
             "/language - تغییر زبان ربات"
         ),
-        "language_set": "زبان به فارسی تغییر یافت."
-        "success_forward": "فرستادم"
-        "failed_forward": "نتونستم بفرستم"
-        "reply": "این دستور رو روی پیامی که می‌خوای داخل کانال فرستاده بشه ریپلای کن."
+        "language_set": "زبان به فارسی تغییر یافت.",
+        "success_forward": "فرستادم",
+        "failed_forward": "نتونستم بفرستم",
+        "reply": "این دستور رو روی پیامی که می‌خوای داخل کانال فرستاده بشه ریپلای کن.",
     }
 }
 
