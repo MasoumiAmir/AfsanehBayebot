@@ -15,7 +15,7 @@ user_language = "fa"  # Default language is Persian
 languages = {
     "en": {
         "welcome": "Hello! I am a bot that forwards audio messages from a group to a specific channel. Let me know if you need assistance.",
-        "status": "The bot is currently {status}.Uptime: {uptime}",
+        "status": "The bot is currently {status}. Uptime: {uptime}",
         "paused": "The bot has been paused.",
         "resumed": "The bot has resumed forwarding messages.",
         "admin_only": "You must be an admin to use this command.",
