@@ -11,234 +11,190 @@ CHANNEL_CHAT_ID = 'your_channel_chat_id'  # Replace with your channel username
 # Global variables
 bot_paused = False
 start_time = datetime.now()
-user_language = "fa"  # Default language is Persian
+user_language = "fa"  # زبان پیشفرض فارسی
+
+# دیکشنری ترجمه
 languages = {
     "en": {
-        "welcome": "Hello! I am a bot that forwards audio messages from a group to a specific channel. Let me know if you need assistance.",
-        "status": "The bot is currently {status}. Uptime: {uptime}",
-        "paused": "The bot has been paused.",
-        "resumed": "The bot has resumed forwarding messages.",
-        "admin_only": "You must be an admin to use this command.",
-        "group_only": "This command can only be used in the group.",
+        "welcome": "✅ Bot activated!\nI forward audio messages to the channel.",
+        "status": "🔄 Status: {status}\n⏳ Uptime: {uptime}",
+        "paused": "⏸ Bot paused!",
+        "resumed": "▶️ Bot resumed!",
+        "admin_only": "🚫 Admin only!",
+        "group_only": "⚠️ Only works in group!",
         "help": (
-            "/start - Start the bot\n"
-            "/status - Check bot status\n"
-            "/pause - Pause forwarding (admin only, group only)\n"
-            "/resume - Resume forwarding (admin only, group only)\n"
-            "/help - Show this help message\n"
-            "/forward - Forward a specific message (use in reply)\n"
-            "/language - Change the bot's language"
+            "📖 Commands:\n"
+            "/start - Start bot\n"
+            "/status - Bot status\n"
+            "/pause - Pause forwarding\n"
+            "/resume - Resume forwarding\n"
+            "/forward - Forward specific message\n"
+            "/language - Change language"
         ),
-        "language_set": "Language has been set to English.",
-        "success_forward": "Message forwarded successfully.",
-        "failed_forward": "Failed to forward the message.",
-        "reply": "Please use this command in reply to a message you want to forward.",
+        "language_set": "🌐 Language set to English",
+        "success_forward": "✅ Forwarded!",
+        "failed_forward": "❌ Failed!",
+        "reply": "↩️ Reply to a message!",
     },
     "fa": {
-        "welcome": "سولام داداش ماچت خوبه؟",
-        "status": "وضعیت: {status} \nمدت زمان کارکرد: \n{uptime}",
-        "paused": "افسانه خوابید",
-        "resumed": "بیدارم",
-        "admin_only": "فقط ادمین‌ها می‌توانند از این دستور استفاده کنند.",
-        "group_only": "این دستور فقط در گروه قابل استفاده است.",
+        "welcome": "✅ ربات فعال شد!\nپیامهای صوتی به کانال فوروارد میشوند.",
+        "status": "🔄 وضعیت: {status}\n⏳ مدت فعالیت: {uptime}",
+        "paused": "⏸ ربات متوقف شد!",
+        "resumed": "▶️ ربات فعال شد!",
+        "admin_only": "🚫 فقط ادمین!",
+        "group_only": "⚠️ فقط در گروه!",
         "help": (
+            "📖 دستورات:\n"
             "/start - شروع ربات\n"
-            "/status - بررسی وضعیت ربات\n"
-            "/pause - متوقف کردن ارسال پیام‌ها (فقط ادمین‌ها، فقط در گروه)\n"
-            "/resume - ادامه ارسال پیام‌ها (فقط ادمین‌ها، فقط در گروه)\n"
-            "/help - نمایش راهنما\n"
-            "/forward - ارسال یک پیام خاص (با ریپلای کردن)\n"
-            "/language - تغییر زبان ربات"
+            "/status - وضعیت ربات\n"
+            "/pause - توقف فوروارد\n"
+            "/resume - ادامه فوروارد\n"
+            "/forward - فوروارد پیام خاص\n"
+            "/language - تغییر زبان"
         ),
-        "language_set": "زبان به فارسی تغییر یافت.",
-        "success_forward": "فرستادم",
-        "failed_forward": "نتونستم بفرستم",
-        "reply": "این دستور رو روی پیامی که می‌خوای داخل کانال فرستاده بشه ریپلای کن.",
+        "language_set": "🌐 زبان تنظیم شد به فارسی",
+        "success_forward": "✅ ارسال شد!",
+        "failed_forward": "❌ خطا!",
+        "reply": "↩️ روی پیام ریپلای کنید!",
     }
 }
 
 def get_text(key):
-    """Retrieve a translated text based on the current language."""
     return languages[user_language].get(key, key)
 
-def is_admin(update: Update) -> bool:
-    """Check if the user is an admin in the group."""
-    user_id = update.effective_user.id
-    chat_member = update.effective_chat.get_member(user_id)
-    return chat_member.status in ["administrator", "creator"]
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    try:
+        user = await context.bot.get_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=update.effective_user.id
+        )
+        return user.status in ["administrator", "creator"]
+    except Exception as e:
+        print(f"Admin check error: {e}")
+        return False
 
 async def fetch_messages(application, chat_id, days=3):
-    """Fetch messages from a chat for the past `days`."""
-    print("[INFO] Fetching recent messages...")
-    now = datetime.now()
-    cutoff = now - timedelta(days=days)
+    cutoff = datetime.now() - timedelta(days=days)
     messages = []
-
     try:
-        updates = await application.bot.get_updates()
-        for update in updates:
-            if update.message and update.message.chat.id == chat_id and update.message.date > cutoff:
-                messages.append(update.message)
+        async for message in application.bot.get_chat_history(chat_id=chat_id):
+            if message.date < cutoff:
+                break
+            if message.audio:
+                messages.append(message)
     except Exception as e:
-        print(f"[ERROR] Error fetching messages: {e}")
-
+        print(f"Fetch error: {e}")
     return messages
 
 async def compare_and_forward(application):
-    """Compare group and channel messages and forward missing ones."""
-    group_messages = await fetch_messages(application, GROUP_CHAT_ID)
-    channel_messages = await fetch_messages(application, CHANNEL_CHAT_ID)
-
-    # Extract unique identifiers (e.g., audio file IDs) from messages
-    group_audio_ids = {msg.audio.file_id for msg in group_messages if msg.audio}
-    channel_audio_ids = {msg.audio.file_id for msg in channel_messages if msg.audio}
-
-    # Find audio files that are in the group but not in the channel
-    missing_audio_ids = group_audio_ids - channel_audio_ids
-
-    for msg in group_messages:
-        if msg.audio and msg.audio.file_id in missing_audio_ids:
-            try:
-                await application.bot.forward_message(
-                    chat_id=CHANNEL_CHAT_ID,
-                    from_chat_id=GROUP_CHAT_ID,
-                    message_id=msg.message_id
-                )
-                print(f"[INFO] Forwarded missing audio: {msg.audio.file_id}")
-            except Exception as e:
-                print(f"[ERROR] Failed to forward audio: {e}")
-
-async def forward_new_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle new audio messages and forward them to the channel."""
-    global bot_paused
-    if bot_paused:
-        print("[INFO] Bot is paused. Skipping new audio forwarding.")
-        return
-
     try:
-        if update.message and update.message.audio:
-            await context.bot.forward_message(
-                chat_id=CHANNEL_CHAT_ID,
-                from_chat_id=update.message.chat.id,
-                message_id=update.message.message_id
-            )
-            print(f"[INFO] Forwarded new audio from {update.message.chat.id} to {CHANNEL_CHAT_ID}.")
+        group = await fetch_messages(application, GROUP_CHAT_ID)
+        channel = await fetch_messages(application, CHANNEL_CHAT_ID)
+        
+        group_files = {m.audio.file_id for m in group if m.audio}
+        channel_files = {m.audio.file_id for m in channel if m.audio}
+        missing = group_files - channel_files
+        
+        for msg in group:
+            if msg.audio and msg.audio.file_id in missing:
+                await msg.forward(CHANNEL_CHAT_ID)
+                await asyncio.sleep(1)
+                
     except Exception as e:
-        print(f"[ERROR] Error while forwarding new audio: {e}")
+        print(f"Compare error: {e}")
 
-async def forward_specific_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Forward a specific message in response to a reply."""
+async def forward_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not bot_paused:
+        try:
+            await update.message.forward(CHANNEL_CHAT_ID)
+        except Exception as e:
+            print(f"Forward error: {e}")
+
+async def manual_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
-        await update.message.reply_text(get_text("reply"))
+        await update.reply_text(get_text("reply"))
         return
-
+    
     try:
-        target_message = update.message.reply_to_message
-        await context.bot.forward_message(
-            chat_id=CHANNEL_CHAT_ID,
-            from_chat_id=target_message.chat.id,
-            message_id=target_message.message_id
-        )
-        await update.message.reply_text(get_text("success_forward"))
-        print(f"[INFO] Forwarded message ID {target_message.message_id} from {target_message.chat.id} to {CHANNEL_CHAT_ID}.")
+        target = update.message.reply_to_message
+        await target.forward(CHANNEL_CHAT_ID)
+        await update.reply_text(get_text("success_forward"))
     except Exception as e:
-        print(f"[ERROR] Error while forwarding specific message: {e}")
-        await update.message.reply_text(get_text("failed_forward"))
+        await update.reply_text(get_text("failed_forward"))
 
-async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Change the bot's language."""
+async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global user_language
-
-    if update.effective_chat.type in ["group", "supergroup"]:
-        if not is_admin(update):
-            await update.message.reply_text(get_text("admin_only"))
-            return
-
-    if len(context.args) != 1 or context.args[0] not in languages:
-        available_languages = ", ".join(languages.keys())
-        await update.message.reply_text(
-            f"Invalid language. Available options: {available_languages}"
-        )
+    if not await is_admin(update, context):
+        await update.reply_text(get_text("admin_only"))
         return
+    
+    lang = context.args[0] if context.args else None
+    if lang in languages:
+        user_language = lang
+        await update.reply_text(get_text("language_set"))
+    else:
+        await update.reply_text(f"Languages: {', '.join(languages.keys())}")
 
-    user_language = context.args[0]
-    await update.message.reply_text(get_text("language_set"))
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.reply_text(get_text("welcome"))
 
-# Command handlers
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a welcome message."""
-    await update.message.reply_text(get_text("welcome"))
-
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send the bot status."""
-    status = "paused" if bot_paused else "running"
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    status = "⏸ متوقف" if bot_paused else "▶️ فعال"
     uptime = datetime.now() - start_time
-    await update.message.reply_text(
-        get_text("status").format(status=status, uptime=uptime)
-    )
+    text = get_text("status").format(status=status, uptime=str(uptime).split('.')[0])
+    await update.reply_text(text)
 
-async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pause the bot."""
-    if not is_admin(update):
-        await update.message.reply_text(get_text("admin_only"))
+async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.reply_text(get_text("admin_only"))
         return
-
-    if update.message.chat.id != int(GROUP_CHAT_ID):
-        await update.message.reply_text(get_text("group_only"))
+    
+    if update.effective_chat.id != GROUP_CHAT_ID:
+        await update.reply_text(get_text("group_only"))
         return
-
+    
     global bot_paused
     bot_paused = True
-    await update.message.reply_text(get_text("paused"))
+    await update.reply_text(get_text("paused"))
 
-async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Resume the bot."""
-    if not is_admin(update):
-        await update.message.reply_text(get_text("admin_only"))
+async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.reply_text(get_text("admin_only"))
         return
-
-    if update.message.chat.id != int(GROUP_CHAT_ID):
-        await update.message.reply_text(get_text("group_only"))
+    
+    if update.effective_chat.id != GROUP_CHAT_ID:
+        await update.reply_text(get_text("group_only"))
         return
-
+    
     global bot_paused
     bot_paused = False
-    await update.message.reply_text(get_text("resumed"))
+    await update.reply_text(get_text("resumed"))
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a list of commands."""
-    await update.message.reply_text(get_text("help"))
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.reply_text(get_text("help"))
 
 async def main():
-    print("[INFO] Starting the bot...")
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Step 1: Compare and forward messages from the past 3 days
-    await compare_and_forward(application)
-
-    # Step 2: Handle new messages in real-time
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("status", status))
-    application.add_handler(CommandHandler("pause", pause))
-    application.add_handler(CommandHandler("resume", resume))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("forward", forward_specific_message))
-    application.add_handler(CommandHandler("language", change_language))
-
-    audio_handler = MessageHandler(filters.AUDIO, forward_new_audio)
-    application.add_handler(audio_handler)
-
-    print("[INFO] Bot is running...")
-    await application.run_polling()
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Initial sync
+    await compare_and_forward(app)
+    
+    # Handlers
+    app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("pause", pause_cmd))
+    app.add_handler(CommandHandler("resume", resume_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("forward", manual_forward))
+    app.add_handler(CommandHandler("language", change_lang))
+    
+    # Audio handler with group filter
+    audio_filter = filters.AUDIO & filters.Chat(chat_id=GROUP_CHAT_ID)
+    app.add_handler(MessageHandler(audio_filter, forward_audio))
+    
+    # Start polling
+    print("✅ Bot is running...")
+    await app.run_polling()
 
 if __name__ == '__main__':
-    import nest_asyncio
-    nest_asyncio.apply()  # Ensures compatibility with existing event loops
-
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        print("[INFO] Bot stopped manually.")
-    finally:
-        loop.close()
+    asyncio.run(main())
