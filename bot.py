@@ -14,8 +14,9 @@ from telegram.ext import (
     filters
 )
 
-from config import BOT_TOKEN, GROUP_CHAT_ID, WATCHDOG_INTERVAL, setup_logging
+from config import BOT_TOKEN, GROUP_CHAT_ID, GOD_USER_ID, WATCHDOG_INTERVAL, setup_logging
 from handlers import CommandHandlers, MessageHandlers, ErrorHandlers, JobHandlers
+from localization import get_text
 
 # Set up logger
 logger = setup_logging()
@@ -66,6 +67,10 @@ async def main():
         await app.initialize()
         await app.start()
         await app.updater.start_polling(allowed_updates=["message", "edited_message", "channel_post"], drop_pending_updates=True)
+        
+        # Send a test message to the god user
+        if GOD_USER_ID:
+            await app.bot.send_message(chat_id=GOD_USER_ID, text=get_text('bot_running'))
         
         # Keep the bot running
         while True:

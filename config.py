@@ -1,39 +1,42 @@
 """
 Configuration module for AfsanehBayebot
-Contains all settings and constants used in the bot
+Contains all configuration settings and environment variables
 """
 
 import logging
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
-# Bot tokens and IDs
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'your_bot_token')  # Bot token from BotFather
-GROUP_CHAT_ID = os.environ.get('GROUP_CHAT_ID', 'your_group_chat_id')  # Group ID to monitor
-CHANNEL_CHAT_ID = os.environ.get('CHANNEL_CHAT_ID', 'your_channel_chat_id')  # Channel to forward to
+# Load environment variables
+load_dotenv()
 
-# Default language (can be changed during runtime)
-DEFAULT_LANGUAGE = "fa"
+# Bot Configuration
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID', 0))
+CHANNEL_CHAT_ID = int(os.getenv('CHANNEL_CHAT_ID', 0))
+GOD_USER_ID = int(os.getenv('GOD_USER_ID', 0))  # اضافه کردن شناسه کاربر گاد
 
-# Database configuration
-DB_PATH = 'data/forwarded_files.db'
-DB_TIMEOUT = 30
+# Database Configuration
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'forwarded_files.db')
 
-# Retry configuration
-MAX_RETRIES = 5
-RETRY_DELAY = 5  # seconds
+# Default Language
+DEFAULT_LANGUAGE = os.getenv('DEFAULT_LANGUAGE', 'en')
 
-# Health check and watchdog
-WATCHDOG_INTERVAL = 60  # seconds
-ACTIVITY_TIMEOUT = 300  # seconds
+# Retry Configuration
+MAX_RETRIES = int(os.getenv('MAX_RETRIES', 3))
+RETRY_DELAY = int(os.getenv('RETRY_DELAY', 5))
+
+# Watchdog Configuration
+WATCHDOG_INTERVAL = int(os.getenv('WATCHDOG_INTERVAL', 300))  # 5 minutes
+
+# Logging Configuration
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+LOG_FILE = 'bot_log.log'
 
 # Create data directory if it doesn't exist
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-
-# Logging configuration
-LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_LEVEL = logging.INFO
-LOG_FILE = 'logs/bot_log.log'
+os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
 
 # Create logs directory if it doesn't exist
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -46,15 +49,19 @@ runtime = {
     'user_language': DEFAULT_LANGUAGE
 }
 
-# Initialize logger
 def setup_logging():
-    """Set up and configure logging"""
-    logging.basicConfig(
-        format=LOG_FORMAT,
-        level=LOG_LEVEL,
-        handlers=[
-            logging.FileHandler(LOG_FILE, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger('afsaneh_bot') 
+    """Set up logging configuration"""
+    logger = logging.getLogger('AfsanehBayebot')
+    logger.setLevel(getattr(logging, LOG_LEVEL))
+    
+    # File handler
+    file_handler = logging.FileHandler(LOG_FILE)
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logger.addHandler(file_handler)
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logger.addHandler(console_handler)
+    
+    return logger 

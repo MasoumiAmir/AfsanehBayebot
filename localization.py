@@ -34,6 +34,7 @@ translations = {
         "health_good": "✅ Bot is working correctly!\n⏱️ Last activity: {time} ago",
         "health_bad": "⚠️ Bot might be experiencing issues. Restarting connection...",
         "not_audio": "❌ This message is not an audio file!",
+        "bot_running": "Bot is now running!"
     },
     "fa": {
         "welcome": "✅ ربات فعال شد!\nپیامهای صوتی به کانال فوروارد میشوند.",
@@ -62,6 +63,7 @@ translations = {
         "health_good": "✅ ربات به درستی کار می‌کند!\n⏱️ آخرین فعالیت: {time} پیش",
         "health_bad": "⚠️ ممکن است ربات با مشکل مواجه شده باشد. در حال راه‌اندازی مجدد اتصال...",
         "not_audio": "❌ این پیام آهنگ نیست!",
+        "bot_running": "ربات اکنون در حال اجراست!"
     }
 }
 
