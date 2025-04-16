@@ -22,6 +22,7 @@ logger = setup_logging()
 
 async def main():
     """Set up and run the bot"""
+    app = None
     try:
         logger.info("Starting AfsanehBayebot...")
         
@@ -60,11 +61,15 @@ async def main():
         
         # Start the bot
         logger.info("✅ Bot is running...")
+        
+        # Start the bot without using run_polling
         await app.initialize()
         await app.start()
-        await app.run_polling(allowed_updates=["message", "edited_message", "channel_post"], drop_pending_updates=True)
+        await app.updater.start_polling(allowed_updates=["message", "edited_message", "channel_post"], drop_pending_updates=True)
         
-        return 0  # Success
+        # Keep the bot running
+        while True:
+            await asyncio.sleep(1)
         
     except Exception as e:
         logger.critical(f"Critical error in main function: {e}")
@@ -72,7 +77,7 @@ async def main():
         return 1  # Error
     finally:
         # Ensure proper cleanup
-        if 'app' in locals():
+        if app:
             await app.stop()
             await app.shutdown()
 
@@ -83,19 +88,10 @@ def run_with_retry():
     
     while retry_count < max_retries:
         try:
-            # Create a new event loop for each attempt
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            # Run the main function
-            result = loop.run_until_complete(main())
-            
-            # Clean up the loop
-            loop.close()
-            
-            if result == 0:
-                logger.info("Bot shut down gracefully")
-                break
+            # Use asyncio.run which handles the event loop properly
+            asyncio.run(main())
+            logger.info("Bot shut down gracefully")
+            break
                 
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
