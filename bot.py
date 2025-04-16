@@ -60,6 +60,8 @@ async def main():
         
         # Start the bot
         logger.info("✅ Bot is running...")
+        await app.initialize()
+        await app.start()
         await app.run_polling(allowed_updates=["message", "edited_message", "channel_post"], drop_pending_updates=True)
         
         return 0  # Success
@@ -68,6 +70,11 @@ async def main():
         logger.critical(f"Critical error in main function: {e}")
         logger.critical(traceback.format_exc())
         return 1  # Error
+    finally:
+        # Ensure proper cleanup
+        if 'app' in locals():
+            await app.stop()
+            await app.shutdown()
 
 def run_with_retry():
     """Run the main program with automatic retries on failure"""
@@ -76,10 +83,20 @@ def run_with_retry():
     
     while retry_count < max_retries:
         try:
-            asyncio.run(main())
-            logger.info("Bot shut down gracefully")
-            break
+            # Create a new event loop for each attempt
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
+            # Run the main function
+            result = loop.run_until_complete(main())
+            
+            # Clean up the loop
+            loop.close()
+            
+            if result == 0:
+                logger.info("Bot shut down gracefully")
+                break
+                
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
             break
