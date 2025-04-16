@@ -18,7 +18,7 @@ CHANNEL_CHAT_ID = int(os.getenv('CHANNEL_CHAT_ID', 0))
 GOD_USER_ID = int(os.getenv('GOD_USER_ID', 0))  # اضافه کردن شناسه کاربر گاد
 
 # Database Configuration
-DATABASE_PATH = os.getenv('DATABASE_PATH', 'forwarded_files.db')
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'data/forwarded_files.db')
 
 # Default Language
 DEFAULT_LANGUAGE = os.getenv('DEFAULT_LANGUAGE', 'en')
@@ -33,7 +33,7 @@ WATCHDOG_INTERVAL = int(os.getenv('WATCHDOG_INTERVAL', 300))  # 5 minutes
 # Logging Configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_FILE = 'bot_log.log'
+LOG_FILE = 'logs/bot_log.log'
 
 # Create data directory if it doesn't exist
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
