@@ -373,7 +373,7 @@ async def forward_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def manual_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     if not update.message.reply_to_message:
         await retry_telegram_operation(
@@ -425,7 +425,7 @@ async def manual_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     global user_language
     if not await is_admin(update, context):
@@ -449,16 +449,16 @@ async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     await retry_telegram_operation(
         update.reply_text,
         get_text("welcome")
     )
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
-    status = "⏸ متوقف" if bot_paused else "▶️ فعال"
+    status = "⏸ Paused" if bot_paused else "▶️ Active"
     uptime = datetime.now() - start_time
     count = get_forwarded_count()
     text = get_text("status").format(
@@ -472,7 +472,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     count = get_forwarded_count()
     last_date = get_last_forwarded_date()
@@ -492,7 +492,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     if not await is_admin(update, context):
         await retry_telegram_operation(
@@ -516,7 +516,7 @@ async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     if not await is_admin(update, context):
         await retry_telegram_operation(
@@ -540,7 +540,7 @@ async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     await retry_telegram_operation(
         update.reply_text,
@@ -548,24 +548,24 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update_last_activity()  # بروزرسانی آخرین فعالیت
+    update_last_activity()  # Update last activity time
     
     now = datetime.now()
     time_since_activity = now - last_activity
     minutes = time_since_activity.total_seconds() / 60
     
-    # اگر آخرین فعالیت خیلی قدیمی است، نگران باشیم
-    if minutes < 10:  # کمتر از 10 دقیقه
+    # If the last activity is too old, we should be concerned
+    if minutes < 10:  # Less than 10 minutes
         await retry_telegram_operation(
             update.reply_text,
-            get_text("health_good").format(time=f"{int(minutes)} دقیقه")
+            get_text("health_good").format(time=f"{int(minutes)} minutes")
         )
     else:
         await retry_telegram_operation(
             update.reply_text,
             get_text("health_bad")
         )
-        # بازسازی اتصال
+        # Reset connection
         await reset_connection(context.application)
 
 async def watchdog(context):
@@ -681,9 +681,10 @@ async def main():
         
         # Start polling with proper error handling and recovery
         logger.info("✅ Bot is running...")
-        await app.start()
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-        await app.idle()
+        
+        # Use the recommended approach for starting the application
+        # This method handles initialization, polling, and idle state all in one call
+        await app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
         
     except Exception as e:
         logger.critical(f"Critical error in main function: {e}")
@@ -693,7 +694,8 @@ async def main():
         # Make sure the bot is properly shut down in any case
         try:
             if 'app' in locals():
-                await app.stop()
+                # No need to call stop explicitly as run_polling handles this
+                pass
         except Exception as shutdown_error:
             logger.error(f"Error during shutdown: {shutdown_error}")
         
