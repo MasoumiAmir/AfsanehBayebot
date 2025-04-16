@@ -240,20 +240,49 @@ async def fetch_messages(application, chat_id, days=3):
     cutoff = datetime.now() - timedelta(days=days)
     messages = []
     try:
-        async for message in application.bot.get_chat_history(chat_id=chat_id):
-            update_last_activity()  # بروزرسانی آخرین فعالیت
-            if message.date < cutoff:
+        # جایگزین کردن get_chat_history با روش دیگر برای دریافت پیام‌ها
+        # استفاده از get_updates به جای get_chat_history
+        offset = 0
+        limit = 100
+        while True:
+            updates = await retry_telegram_operation(
+                application.bot.get_updates,
+                offset=offset,
+                limit=limit,
+                timeout=60,
+                allowed_updates=["message"]
+            )
+            
+            if not updates:
                 break
-            if message.audio:
-                messages.append(message)
+                
+            for update in updates:
+                update_last_activity()
+                if update.message and update.message.chat.id == chat_id and update.message.audio:
+                    if update.message.date < cutoff:
+                        return messages
+                    messages.append(update.message)
+                    
+            if not updates:
+                break
+                
+            offset = updates[-1].update_id + 1
+            
+            # محدودیت برای جلوگیری از حلقه بی‌نهایت
+            if len(messages) >= 1000:
+                break
+                
     except Exception as e:
         logger.error(f"Fetch error: {e}")
+        logger.error(traceback.format_exc())
     return messages
 
 async def compare_and_forward(application):
     try:
+        logger.info("شروع همگام‌سازی پیام‌ها با کانال...")
         group_messages = await fetch_messages(application, GROUP_CHAT_ID)
         
+        forwarded_count = 0
         for msg in group_messages:
             if msg.audio and not is_file_forwarded(msg.audio.file_id):
                 forward_result = await retry_telegram_operation(
@@ -267,8 +296,10 @@ async def compare_and_forward(application):
                         msg.audio.title or "",
                         forward_result.message_id
                     )
-                await asyncio.sleep(1)
-                
+                    forwarded_count += 1
+                await asyncio.sleep(1)  # تاخیر برای جلوگیری از محدودیت‌های API
+        
+        logger.info(f"همگام‌سازی تکمیل شد. {forwarded_count} فایل جدید ارسال شد.")
     except Exception as e:
         logger.error(f"Compare error: {e}")
         logger.error(traceback.format_exc())
@@ -514,28 +545,31 @@ async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def watchdog(application):
     """نظارت بر سلامت ربات و ریست کردن اتصال در صورت نیاز"""
-    while True:
-        try:
-            await asyncio.sleep(WATCHDOG_INTERVAL)
-            now = datetime.now()
-            time_since_activity = now - last_activity
-            
-            # اگر ربات برای مدت طولانی غیرفعال بوده است
-            if time_since_activity.total_seconds() > ACTIVITY_TIMEOUT:
-                logger.warning(f"Bot inactive for {time_since_activity}. Resetting connection...")
-                await reset_connection(application)
-        except Exception as e:
-            logger.error(f"Watchdog error: {e}")
-            logger.error(traceback.format_exc())
+    try:
+        now = datetime.now()
+        time_since_activity = now - last_activity
+        
+        # اگر ربات برای مدت طولانی غیرفعال بوده است
+        if time_since_activity.total_seconds() > ACTIVITY_TIMEOUT:
+            logger.warning(f"Bot inactive for {time_since_activity}. Resetting connection...")
+            await reset_connection(application)
+    except Exception as e:
+        logger.error(f"Watchdog error: {e}")
+        logger.error(traceback.format_exc())
 
 async def reset_connection(application):
     """بازسازی اتصال تلگرام"""
     try:
         logger.info("Attempting to reset connection...")
-        # بستن همه اتصال‌های فعلی و منابع
-        # توجه: این کار ممکن است به روش‌های متفاوتی انجام شود بسته به نسخه python-telegram-bot
-        
-        # تلاش برای برقراری اتصال مجدد
+        # در اینجا می‌توانیم عملیات خاصی برای بازنشانی اتصال انجام دهیم
+        # برای مثال، می‌توانیم یک درخواست ساده به تلگرام ارسال کنیم
+        try:
+            # ارسال یک درخواست ساده به API تلگرام برای بررسی اتصال
+            me = await application.bot.get_me()
+            logger.info(f"Connection verified with bot: {me.username}")
+        except Exception as api_error:
+            logger.error(f"Failed to connect to Telegram API: {api_error}")
+            
         logger.info("Connection reset successful")
         update_last_activity()  # بروزرسانی آخرین فعالیت
     except Exception as e:
@@ -574,12 +608,6 @@ async def main():
         # ثبت مدیریت خطا
         app.add_error_handler(error_handler)
         
-        # Initial sync
-        await compare_and_forward(app)
-        
-        # راه‌اندازی watchdog برای نظارت بر سلامت ربات
-        asyncio.create_task(watchdog(app))
-        
         # Handlers
         app.add_handler(CommandHandler("start", start_cmd))
         app.add_handler(CommandHandler("status", status_cmd))
@@ -595,14 +623,28 @@ async def main():
         audio_filter = filters.AUDIO & filters.Chat(chat_id=GROUP_CHAT_ID)
         app.add_handler(MessageHandler(audio_filter, forward_audio))
         
+        # راه‌اندازی watchdog برای نظارت بر سلامت ربات
+        # راه‌اندازی watchdog در یک تسک جداگانه
+        app.job_queue.run_repeating(
+            lambda context: asyncio.create_task(watchdog(app)), 
+            interval=WATCHDOG_INTERVAL,
+            first=10.0
+        )
+        
+        # Initial sync - انجام بعد از راه‌اندازی ربات
+        app.job_queue.run_once(
+            lambda context: asyncio.create_task(compare_and_forward(app)),
+            when=5.0
+        )
+        
         # Start polling with proper error handling and recovery
         logger.info("✅ Bot is running...")
         await app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        
     except Exception as e:
         logger.critical(f"Critical error in main function: {e}")
         logger.critical(traceback.format_exc())
-        # در صورت خطای بحرانی، تلاش برای راه‌اندازی مجدد پس از تاخیر
-        await asyncio.sleep(10)
+        # در صورت خطای بحرانی، رفتار مناسب
         return 1  # کد خروج غیرصفر برای تلاش مجدد
 
 def run_with_retry():
@@ -612,7 +654,12 @@ def run_with_retry():
     
     while retry_count < max_retries:
         try:
-            exit_code = asyncio.run(main())
+            # استفاده از تابع اصلی بدون asyncio.run برای جلوگیری از خطاهای event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            exit_code = loop.run_until_complete(main())
+            loop.close()
+            
             if exit_code == 0:  # خروج موفق
                 break
             retry_count += 1
