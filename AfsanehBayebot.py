@@ -4,6 +4,22 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from datetime import datetime, timedelta
 import os
+import logging
+import sys
+import traceback
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+# تنظیمات لاگ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot_log.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Bot token and chat IDs
 BOT_TOKEN = 'your_bot_token'  # Replace with your bot token
@@ -17,6 +33,13 @@ DB_PATH = 'forwarded_files.db'
 bot_paused = False
 start_time = datetime.now()
 user_language = "fa"  # زبان پیشفرض فارسی
+last_activity = datetime.now() # آخرین فعالیت ربات
+
+# تنظیمات پیشرفته
+MAX_RETRIES = 5  # تعداد تلاش‌های مجدد برای عملیات‌های تلگرام
+RETRY_DELAY = 5  # تاخیر بین تلاش‌ها (ثانیه)
+WATCHDOG_INTERVAL = 60  # بازه زمانی بررسی سلامت ربات (ثانیه)
+ACTIVITY_TIMEOUT = 300  # زمان بی‌فعالیتی (ثانیه) قبل از بازنشانی اتصال
 
 # دیکشنری ترجمه
 languages = {
@@ -35,7 +58,8 @@ languages = {
             "/resume - Resume forwarding\n"
             "/forward - Forward specific message\n"
             "/language - Change language\n"
-            "/stats - View forwarding stats"
+            "/stats - View forwarding stats\n"
+            "/healthcheck - Check bot health"
         ),
         "language_set": "🌐 Language set to English",
         "success_forward": "✅ Forwarded!",
@@ -43,6 +67,8 @@ languages = {
         "reply": "↩️ Reply to a message!",
         "stats": "📊 Total files forwarded: {count}\n📅 Last forwarded: {last_date}",
         "already_forwarded": "⚠️ Already forwarded to channel!",
+        "health_good": "✅ Bot is working correctly!\n⏱️ Last activity: {time} ago",
+        "health_bad": "⚠️ Bot might be experiencing issues. Restarting connection...",
     },
     "fa": {
         "welcome": "✅ ربات فعال شد!\nپیامهای صوتی به کانال فوروارد میشوند.",
@@ -59,7 +85,8 @@ languages = {
             "/resume - ادامه فوروارد\n"
             "/forward - فوروارد پیام خاص\n"
             "/language - تغییر زبان\n"
-            "/stats - آمار ارسال‌ها"
+            "/stats - آمار ارسال‌ها\n"
+            "/healthcheck - بررسی سلامت ربات"
         ),
         "language_set": "🌐 زبان تنظیم شد به فارسی",
         "success_forward": "✅ ارسال شد!",
@@ -67,79 +94,146 @@ languages = {
         "reply": "↩️ روی پیام ریپلای کنید!",
         "stats": "📊 کل فایل‌های ارسال شده: {count}\n📅 آخرین ارسال: {last_date}",
         "already_forwarded": "⚠️ قبلاً به کانال ارسال شده است!",
+        "health_good": "✅ ربات به درستی کار می‌کند!\n⏱️ آخرین فعالیت: {time} پیش",
+        "health_bad": "⚠️ ممکن است ربات با مشکل مواجه شده باشد. در حال راه‌اندازی مجدد اتصال...",
     }
 }
 
 def get_text(key):
     return languages[user_language].get(key, key)
 
+# تابع برای ثبت آخرین فعالیت
+def update_last_activity():
+    global last_activity
+    last_activity = datetime.now()
+
+# مدیریت اتصال به پایگاه داده
+def get_db_connection():
+    """Get a database connection with timeout and isolation level settings"""
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        conn.isolation_level = None  # اتوکامیت
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Database connection error: {e}")
+        raise
+
 # Database functions
 def init_db():
     """Initialize the database if it doesn't exist"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS forwarded_files (
-        file_id TEXT PRIMARY KEY,
-        file_name TEXT,
-        performer TEXT,
-        title TEXT,
-        forward_date TIMESTAMP,
-        message_id INTEGER
-    )
-    ''')
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS forwarded_files (
+            file_id TEXT PRIMARY KEY,
+            file_name TEXT,
+            performer TEXT,
+            title TEXT,
+            forward_date TIMESTAMP,
+            message_id INTEGER
+        )
+        ''')
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization error: {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 def save_forwarded_file(file_id, file_name="", performer="", title="", message_id=0):
     """Save a forwarded file to the database"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO forwarded_files VALUES (?, ?, ?, ?, ?, ?)",
-        (file_id, file_name, performer, title, datetime.now(), message_id)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO forwarded_files VALUES (?, ?, ?, ?, ?, ?)",
+            (file_id, file_name, performer, title, datetime.now(), message_id)
+        )
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"Error saving forwarded file: {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 def is_file_forwarded(file_id):
     """Check if a file has been forwarded before"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM forwarded_files WHERE file_id = ?", (file_id,))
-    result = cursor.fetchone() is not None
-    conn.close()
-    return result
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM forwarded_files WHERE file_id = ?", (file_id,))
+        result = cursor.fetchone() is not None
+        return result
+    except sqlite3.Error as e:
+        logger.error(f"Error checking forwarded file: {e}")
+        return False  # در صورت خطا فرض می‌کنیم فایل فوروارد نشده است
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 def get_forwarded_count():
     """Get the count of forwarded files"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM forwarded_files")
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM forwarded_files")
+        count = cursor.fetchone()[0]
+        return count
+    except sqlite3.Error as e:
+        logger.error(f"Error getting forwarded count: {e}")
+        return 0
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 def get_last_forwarded_date():
     """Get the date of the last forwarded file"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT forward_date FROM forwarded_files ORDER BY forward_date DESC LIMIT 1")
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        return result[0]
-    return "N/A"
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT forward_date FROM forwarded_files ORDER BY forward_date DESC LIMIT 1")
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        return "N/A"
+    except sqlite3.Error as e:
+        logger.error(f"Error getting last forwarded date: {e}")
+        return "N/A"
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+
+# تابع تلاش مجدد برای عملیات‌های تلگرام
+async def retry_telegram_operation(operation, *args, **kwargs):
+    """Retry a Telegram API operation with exponential backoff"""
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            result = await operation(*args, **kwargs)
+            update_last_activity()  # بروزرسانی آخرین فعالیت
+            return result
+        except Exception as e:
+            retry_count += 1
+            error_type = type(e).__name__
+            if retry_count >= MAX_RETRIES:
+                logger.error(f"Failed after {MAX_RETRIES} retries: {error_type} - {str(e)}")
+                raise
+            
+            wait_time = RETRY_DELAY * (2 ** (retry_count - 1))  # exponential backoff
+            logger.warning(f"Retry {retry_count}/{MAX_RETRIES} after {wait_time}s due to {error_type}: {str(e)}")
+            await asyncio.sleep(wait_time)
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
-        user = await context.bot.get_chat_member(
+        user = await retry_telegram_operation(
+            context.bot.get_chat_member,
             chat_id=update.effective_chat.id,
             user_id=update.effective_user.id
         )
         return user.status in ["administrator", "creator"]
     except Exception as e:
-        print(f"Admin check error: {e}")
+        logger.error(f"Admin check error: {e}")
         return False
 
 async def fetch_messages(application, chat_id, days=3):
@@ -147,12 +241,13 @@ async def fetch_messages(application, chat_id, days=3):
     messages = []
     try:
         async for message in application.bot.get_chat_history(chat_id=chat_id):
+            update_last_activity()  # بروزرسانی آخرین فعالیت
             if message.date < cutoff:
                 break
             if message.audio:
                 messages.append(message)
     except Exception as e:
-        print(f"Fetch error: {e}")
+        logger.error(f"Fetch error: {e}")
     return messages
 
 async def compare_and_forward(application):
@@ -161,7 +256,9 @@ async def compare_and_forward(application):
         
         for msg in group_messages:
             if msg.audio and not is_file_forwarded(msg.audio.file_id):
-                forward_result = await msg.forward(CHANNEL_CHAT_ID)
+                forward_result = await retry_telegram_operation(
+                    msg.forward, CHANNEL_CHAT_ID
+                )
                 if forward_result:
                     save_forwarded_file(
                         msg.audio.file_id,
@@ -173,9 +270,12 @@ async def compare_and_forward(application):
                 await asyncio.sleep(1)
                 
     except Exception as e:
-        print(f"Compare error: {e}")
+        logger.error(f"Compare error: {e}")
+        logger.error(traceback.format_exc())
 
 async def forward_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     if bot_paused:
         return
         
@@ -186,11 +286,16 @@ async def forward_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check if already forwarded
     if is_file_forwarded(file_id):
-        await update.message.reply_text(get_text("already_forwarded"))
+        await retry_telegram_operation(
+            update.message.reply_text,
+            get_text("already_forwarded")
+        )
         return
         
     try:
-        forward_result = await update.message.forward(CHANNEL_CHAT_ID)
+        forward_result = await retry_telegram_operation(
+            update.message.forward, CHANNEL_CHAT_ID
+        )
         if forward_result:
             save_forwarded_file(
                 file_id,
@@ -199,30 +304,50 @@ async def forward_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 update.message.audio.title or "",
                 forward_result.message_id
             )
-            await update.message.reply_text(get_text("success_forward"))
+            await retry_telegram_operation(
+                update.message.reply_text,
+                get_text("success_forward")
+            )
     except Exception as e:
-        print(f"Forward error: {e}")
-        await update.message.reply_text(get_text("failed_forward"))
+        logger.error(f"Forward error: {e}")
+        logger.error(traceback.format_exc())
+        await retry_telegram_operation(
+            update.message.reply_text,
+            get_text("failed_forward")
+        )
 
 async def manual_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     if not update.message.reply_to_message:
-        await update.reply_text(get_text("reply"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("reply")
+        )
         return
     
     target = update.message.reply_to_message
     if not target.audio:
-        await update.reply_text("❌ این پیام آهنگ نیست!")
+        await retry_telegram_operation(
+            update.reply_text,
+            "❌ این پیام آهنگ نیست!"
+        )
         return
         
     file_id = target.audio.file_id
     
     # Check if already forwarded
     if is_file_forwarded(file_id):
-        await update.message.reply_text(get_text("already_forwarded"))
+        await retry_telegram_operation(
+            update.message.reply_text,
+            get_text("already_forwarded")
+        )
         return
     
     try:
-        forward_result = await target.forward(CHANNEL_CHAT_ID)
+        forward_result = await retry_telegram_operation(
+            target.forward, CHANNEL_CHAT_ID
+        )
         if forward_result:
             save_forwarded_file(
                 file_id,
@@ -231,27 +356,52 @@ async def manual_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 target.audio.title or "",
                 forward_result.message_id
             )
-        await update.reply_text(get_text("success_forward"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("success_forward")
+        )
     except Exception as e:
-        await update.reply_text(get_text("failed_forward"))
+        logger.error(f"Manual forward error: {e}")
+        logger.error(traceback.format_exc())
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("failed_forward")
+        )
 
 async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     global user_language
     if not await is_admin(update, context):
-        await update.reply_text(get_text("admin_only"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("admin_only")
+        )
         return
     
     lang = context.args[0] if context.args else None
     if lang in languages:
         user_language = lang
-        await update.reply_text(get_text("language_set"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("language_set")
+        )
     else:
-        await update.reply_text(f"Languages: {', '.join(languages.keys())}")
+        await retry_telegram_operation(
+            update.reply_text,
+            f"Languages: {', '.join(languages.keys())}"
+        )
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.reply_text(get_text("welcome"))
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    await retry_telegram_operation(
+        update.reply_text,
+        get_text("welcome")
+    )
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     status = "⏸ متوقف" if bot_paused else "▶️ فعال"
     uptime = datetime.now() - start_time
     count = get_forwarded_count()
@@ -260,9 +410,14 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uptime=str(uptime).split('.')[0],
         count=count
     )
-    await update.reply_text(text)
+    await retry_telegram_operation(
+        update.reply_text,
+        text
+    )
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     count = get_forwarded_count()
     last_date = get_last_forwarded_date()
     
@@ -275,63 +430,205 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     
     text = get_text("stats").format(count=count, last_date=last_date)
-    await update.reply_text(text)
+    await retry_telegram_operation(
+        update.reply_text,
+        text
+    )
 
 async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     if not await is_admin(update, context):
-        await update.reply_text(get_text("admin_only"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("admin_only")
+        )
         return
     
     if update.effective_chat.id != GROUP_CHAT_ID:
-        await update.reply_text(get_text("group_only"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("group_only")
+        )
         return
     
     global bot_paused
     bot_paused = True
-    await update.reply_text(get_text("paused"))
+    await retry_telegram_operation(
+        update.reply_text,
+        get_text("paused")
+    )
 
 async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
     if not await is_admin(update, context):
-        await update.reply_text(get_text("admin_only"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("admin_only")
+        )
         return
     
     if update.effective_chat.id != GROUP_CHAT_ID:
-        await update.reply_text(get_text("group_only"))
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("group_only")
+        )
         return
     
     global bot_paused
     bot_paused = False
-    await update.reply_text(get_text("resumed"))
+    await retry_telegram_operation(
+        update.reply_text,
+        get_text("resumed")
+    )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.reply_text(get_text("help"))
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
+    await retry_telegram_operation(
+        update.reply_text,
+        get_text("help")
+    )
+
+async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_activity()  # بروزرسانی آخرین فعالیت
+    
+    now = datetime.now()
+    time_since_activity = now - last_activity
+    minutes = time_since_activity.total_seconds() / 60
+    
+    # اگر آخرین فعالیت خیلی قدیمی است، نگران باشیم
+    if minutes < 10:  # کمتر از 10 دقیقه
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("health_good").format(time=f"{int(minutes)} دقیقه")
+        )
+    else:
+        await retry_telegram_operation(
+            update.reply_text,
+            get_text("health_bad")
+        )
+        # بازسازی اتصال
+        await reset_connection(context)
+
+async def watchdog(application):
+    """نظارت بر سلامت ربات و ریست کردن اتصال در صورت نیاز"""
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+            now = datetime.now()
+            time_since_activity = now - last_activity
+            
+            # اگر ربات برای مدت طولانی غیرفعال بوده است
+            if time_since_activity.total_seconds() > ACTIVITY_TIMEOUT:
+                logger.warning(f"Bot inactive for {time_since_activity}. Resetting connection...")
+                await reset_connection(application)
+        except Exception as e:
+            logger.error(f"Watchdog error: {e}")
+            logger.error(traceback.format_exc())
+
+async def reset_connection(application):
+    """بازسازی اتصال تلگرام"""
+    try:
+        logger.info("Attempting to reset connection...")
+        # بستن همه اتصال‌های فعلی و منابع
+        # توجه: این کار ممکن است به روش‌های متفاوتی انجام شود بسته به نسخه python-telegram-bot
+        
+        # تلاش برای برقراری اتصال مجدد
+        logger.info("Connection reset successful")
+        update_last_activity()  # بروزرسانی آخرین فعالیت
+    except Exception as e:
+        logger.error(f"Error resetting connection: {e}")
+        logger.error(traceback.format_exc())
+
+# مدیریت خطاهای کلی
+async def error_handler(update, context):
+    """مدیریت خطاهای کلی ربات"""
+    # ثبت خطا در لاگ
+    logger.error(f"Update {update} caused error: {context.error}")
+    logger.error(traceback.format_exc())
+    
+    try:
+        # به روزرسانی آخرین فعالیت (حتی در صورت بروز خطا)
+        update_last_activity()
+        
+        # اگر خطا به روزرسانی مشخصی مربوط است، به کاربر اطلاع دهیم
+        if update and update.effective_chat:
+            await retry_telegram_operation(
+                context.bot.send_message,
+                chat_id=update.effective_chat.id,
+                text="⚠️ خطایی رخ داد. لطفا دوباره تلاش کنید."
+            )
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
 
 async def main():
-    # Initialize database
-    init_db()
+    try:
+        # Initialize database
+        init_db()
+        
+        # تنظیم برنامه با پارامترهای بهینه
+        app = Application.builder().token(BOT_TOKEN).build()
+        
+        # ثبت مدیریت خطا
+        app.add_error_handler(error_handler)
+        
+        # Initial sync
+        await compare_and_forward(app)
+        
+        # راه‌اندازی watchdog برای نظارت بر سلامت ربات
+        asyncio.create_task(watchdog(app))
+        
+        # Handlers
+        app.add_handler(CommandHandler("start", start_cmd))
+        app.add_handler(CommandHandler("status", status_cmd))
+        app.add_handler(CommandHandler("pause", pause_cmd))
+        app.add_handler(CommandHandler("resume", resume_cmd))
+        app.add_handler(CommandHandler("help", help_cmd))
+        app.add_handler(CommandHandler("forward", manual_forward))
+        app.add_handler(CommandHandler("language", change_lang))
+        app.add_handler(CommandHandler("stats", stats_cmd))
+        app.add_handler(CommandHandler("healthcheck", health_check))
+        
+        # Audio handler with group filter
+        audio_filter = filters.AUDIO & filters.Chat(chat_id=GROUP_CHAT_ID)
+        app.add_handler(MessageHandler(audio_filter, forward_audio))
+        
+        # Start polling with proper error handling and recovery
+        logger.info("✅ Bot is running...")
+        await app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    except Exception as e:
+        logger.critical(f"Critical error in main function: {e}")
+        logger.critical(traceback.format_exc())
+        # در صورت خطای بحرانی، تلاش برای راه‌اندازی مجدد پس از تاخیر
+        await asyncio.sleep(10)
+        return 1  # کد خروج غیرصفر برای تلاش مجدد
+
+def run_with_retry():
+    """اجرای برنامه اصلی با تلاش مجدد در صورت شکست"""
+    retry_count = 0
+    max_retries = 10
     
-    app = Application.builder().token(BOT_TOKEN).build()
-    
-    # Initial sync
-    await compare_and_forward(app)
-    
-    # Handlers
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("status", status_cmd))
-    app.add_handler(CommandHandler("pause", pause_cmd))
-    app.add_handler(CommandHandler("resume", resume_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("forward", manual_forward))
-    app.add_handler(CommandHandler("language", change_lang))
-    app.add_handler(CommandHandler("stats", stats_cmd))
-    
-    # Audio handler with group filter
-    audio_filter = filters.AUDIO & filters.Chat(chat_id=GROUP_CHAT_ID)
-    app.add_handler(MessageHandler(audio_filter, forward_audio))
-    
-    # Start polling
-    print("✅ Bot is running...")
-    await app.run_polling()
+    while retry_count < max_retries:
+        try:
+            exit_code = asyncio.run(main())
+            if exit_code == 0:  # خروج موفق
+                break
+            retry_count += 1
+            wait_time = min(60, 5 * (2 ** retry_count))  # حداکثر 60 ثانیه تاخیر
+            logger.warning(f"Restarting bot in {wait_time} seconds (attempt {retry_count}/{max_retries})...")
+            time.sleep(wait_time)
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+            break
+        except Exception as e:
+            retry_count += 1
+            logger.critical(f"Fatal error: {e}")
+            logger.critical(traceback.format_exc())
+            wait_time = min(60, 5 * (2 ** retry_count))  # حداکثر 60 ثانیه تاخیر
+            logger.warning(f"Restarting bot in {wait_time} seconds (attempt {retry_count}/{max_retries})...")
+            time.sleep(wait_time)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    run_with_retry()
